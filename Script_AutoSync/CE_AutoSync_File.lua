@@ -1,5 +1,7 @@
 [ENABLE]
 {$lua}
+if syntaxcheck then return end
+
 local filePath = "C:\\Users\\sands\\Desktop\\testStr.txt"
 local tableScriptName = "Hellooo"
 
@@ -34,11 +36,24 @@ local function getStringFromFile(path)
   return fileStr
 end
 
-
-local record = getLuaRecord(tableScriptName)
-local fileString = getStringFromFile(filePath)
-if record ~= nil and fileString ~= nil then
-	record.Script = fileString
+local function timer_tick(timer)
+	local record = getLuaRecord(tableScriptName)
+	local fileString = getStringFromFile(filePath)
+	if record ~= nil and fileString ~= nil then
+		record.Script = fileString
+	end
 end
 
+SomeTimer = createTimer(getMainForm())
+SomeTimer.Interval = 300
+SomeTimer.OnTimer = timer_tick
+SomeTimer.setEnabled(true)
+
+
 [DISABLE]
+{$lua}
+if syntaxcheck then return end
+
+if SomeTimer ~= nil then
+	SomeTimer.setEnabled(false)
+end
