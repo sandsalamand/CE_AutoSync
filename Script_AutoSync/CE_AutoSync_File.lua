@@ -1,13 +1,15 @@
 [ENABLE]
 {$lua}
-if syntaxcheck then return end
-
-local filePath = "C:\\Users\\sands\\Desktop\\testStr.txt"
-local tableScriptName = "Hellooo"
-
---Plan: get memory stream of .lua file written to by VSCode, then create a MemoryRecord
+-- Summary: Get memory stream of file written to by VSCode, then create a MemoryRecord
 -- with createMemoryRecord() and set its Script property to the string contained in the
 -- file memory stream
+if syntaxcheck then return end
+
+--Path must have \\ for each \
+local filePath = "C:\\Users\\sands\\Documents\\VSCode_BulletBitmap\\BitmapToBullet.lua"
+local tableScriptName = "Synchronization Test"
+----------------------------------------------------------
+
 
 local function getLuaRecord(scriptName)
   local luaRecord = nil
@@ -48,7 +50,6 @@ SomeTimer = createTimer(getMainForm())
 SomeTimer.Interval = 300
 SomeTimer.OnTimer = timer_tick
 SomeTimer.setEnabled(true)
-
 
 [DISABLE]
 {$lua}
