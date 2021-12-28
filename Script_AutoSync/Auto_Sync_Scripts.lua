@@ -21,8 +21,7 @@ package.preload["ce.auto_sync"] = function(...)
     local pathList = {}
     local tableFileName = "syncList.txt"
     local mainForm = nil
-    local tableMenuItem = nil
-    local syncListMenuItem = nil
+    local tableMainMenuItem = nil
     local SyncTimer = nil
 
     -- Escape special pattern characters in string to be treated as simple characters
@@ -182,21 +181,20 @@ package.preload["ce.auto_sync"] = function(...)
     end
 
     local function checkForTableMenuOpened()
-        if(tableMenuItem.Count > 6) then
+        if(tableMainMenuItem.Count > 6) then
             return true
         end
         return false
     end
 
-    local function getSyncListMenuItem()
-        local item
+    local function deleteSyncListMenuItem()
+        local itemCaption
         local i = 0
-        local menuItemCount = tableMenuItem.Count
+        local menuItemCount = tableMainMenuItem.Count
         while(i < menuItemCount) do
-            item = tableMenuItem.Item[i]
-            if (item.Caption == tableFileName) then
-                tableMenuItem.delete(i) --test
-                return item
+            itemCaption = tableMainMenuItem.Item[i].Caption
+            if (itemCaption == tableFileName) then
+                tableMainMenuItem.delete(i)
             end
             i = i + 1
         end
@@ -204,18 +202,17 @@ package.preload["ce.auto_sync"] = function(...)
     end
 
     local function timer_tick(timer)
-        --TODO: Remove most global variables I added, simply do findTableFile() here and remove the checkmark + clear all lists if user deletes tableFile (they will still have them saved on their PC)
-        if(syncListMenuItem == nil and checkForTableMenuOpened() == true) then --triggers when menu is open
-            syncListMenuItem = getSyncListMenuItem()
-            syncListMenuItem = nil --test
+        --alternative: do findTableFile() here and remove the checkmark + clear all lists if user deletes tableFile (they will still have them saved on their PC)
+        if(checkForTableMenuOpened() == true) then --triggers when menu is open
+            deleteSyncListMenuItem()
         end
-        if syncListMenuItem ~= nil and syncListMenuItem.Parent == nil then --if reference has already been set, but parent is nil, it means menuItem was destroyed or menu was closed
+        --[[ if syncListMenuItem ~= nil and syncListMenuItem.Parent == nil then --if reference has already been set, but parent is nil, it means menuItem was destroyed or menu was closed
             --print("reference expired: "..syncListMenuItem.Caption)
             syncListMenuItem = nil
             local tableFile = findTableFile(tableFileName)
             if tableFile ~= nil then tableFile.delete() end
             createTableFileWithData(tableFileName)
-        end
+        end ]]
         --Update all records in list with text from files in pathList
         for index, recordId in ipairs(recordIdList) do
             local fileString = getStringFromFile(pathList[index])
@@ -287,28 +284,51 @@ package.preload["ce.auto_sync"] = function(...)
     local function setUpForm()
         local form = createForm(true)
         form.Caption = "Sync Scripts"
-        form.Width = 600
-        form.Height = 600
-        --local topLeftMenu = createMainMenu(form)
-        --local menuItem = topLeftMenu.getItems()
-        --if menuItem == nil then print ("menuItem nil")
-        --else menuItem.Caption = "Sync Scripts" end
+        form.Width = 900
+        form.Height = 1200
         form.AllowDropFiles = true
         --fileNames is an array of file paths with single slashes. gsub adds extra slashes before passing to getStringFromFile
         form.OnDropFiles = function(sender, fileNames) addFilesToSync(fileNames) end
-        local label = createLabel(form)
-        label.setTop(label.ClientWidth/2)
-        label.Caption = "Enter Script Path"
-        label.Width = 400
-        label.Enabled = true
-        label.Visible = true
-        local editBox = createEdit(form) --editable box
-        editBox.setTop(label.ClientWidth/2) -- x
-        editBox.SetLeft(100) -- y
-        editBox.SetWidth(100)
-        --form.show() --should be done outside
-        --form.bringToFront()
+
+        local titleFont = createFont()
+        titleFont.Size = 24
+        titleFont.Style = 'fsBold'
+
+        local titleLabel = createLabel(form)
+        titleLabel.Caption = "List of Auto-Synced Files"
+        titleLabel.Font = titleFont
+        titleLabel.Width = 400
+        titleLabel.setTop(20)
+        local xPosTitle = (form.Width/2) - (titleLabel.Width/2)
+        titleLabel.setLeft(xPosTitle)
+        titleLabel.Enabled = true
+        titleLabel.Visible = true
+
+        local infoFont = createFont()
+        infoFont.Size = 11
+        infoFont.Style = 'fsItalic'
+
+        local infoLabel = createLabel(form)
+        infoLabel.Caption = "Add files by dropping them onto this window, or onto the main CE form."
+        infoLabel.Font = infoFont
+        infoLabel.setTop(120)
+        local xPosInfo = (form.Width/2) - (infoLabel.Width/2)
+        infoLabel.setLeft(xPosInfo)
+        infoLabel.Width = 400
+        infoLabel.Enabled = true
+        infoLabel.Visible = true
+
+        --TODO: print record.Description and the associated path. can maybe use addDataToSave for inspiration
+
         return form
+    end
+
+    local function createAndShowSyncForm()
+        --TODO: see if it's possible to check if form already exists before creating
+        local form = setUpForm()
+        if form == nil then ShowMessage("Failed to open form, please report this bug to the script's creator.") return end
+        form.show()
+        form.bringToFront()
     end
 
     -- add item to enable sync to popup menu
@@ -330,30 +350,32 @@ package.preload["ce.auto_sync"] = function(...)
     openSyncFormMenuItem.ImageIndex = MainForm.CreateGroup.ImageIndex
     popUpMenu.Items.insert(MainForm.CreateGroup.MenuIndex, openSyncFormMenuItem)
 
-    local function getSyncListMenuItem()
-        print("menu opened")
+    local function createSyncSettingsMenuItem()
+        local mainMenuItems = mainForm.Menu.Items
+        local settingsMainMenuItem = mainMenuItems[1]
+        local syncMenuItem = createMenuItem(mainForm.Menu)
+        syncMenuItem.Caption = "Sync Settings"
+        syncMenuItem.Parent = settingsMainMenuItem
+        syncMenuItem.OnClick = createAndShowSyncForm
+        settingsMainMenuItem:add(syncMenuItem)
     end
 
     local function loadEverything()
         loadData()
-        local menuItems = mainForm.Menu.Items
-        tableMenuItem = mainForm.Menu.Items[3]
-        --menuItems[2].setOnClick(getSyncListMenuItem) --doesnt work
-        -- local newMenuItemtest = createMenuItem(mainForm.Menu)
-        -- newMenuItemtest.Caption = "test"
-        -- newMenuItemtest.Parent = menuItems[1]
-        -- menuItems[1]:add(newMenuItemtest)
+        local mainMenuItems = mainForm.Menu.Items
+        tableMainMenuItem = mainMenuItems[3]
         local menuIndex = 3
         local item
         local i = 0
-        local menuItemCount = menuItems[menuIndex].Count -- can look when this increases to see when users expands Table menu, then get a reference to the syncList.txt MenuItem
+        local menuItemCount = mainMenuItems[menuIndex].Count -- can look when this increases to see when users expands Table menu, then get a reference to the syncList.txt MenuItem
         while(i < menuItemCount) do
-            item = menuItems[menuIndex].Item[i]
+            item = mainMenuItems[menuIndex].Item[i]
             print(item.getCaption())
             i = i + 1
         end
-        print(menuItems[3].Count)
+        print(mainMenuItems[3].Count)
         mainForm.OnDropFiles = function(sender, filenames) addFilesToSync(filenames) end
+        createSyncSettingsMenuItem()
     end
 
     mainForm = getMainForm()
@@ -364,7 +386,7 @@ package.preload["ce.auto_sync"] = function(...)
         local selectedRecord = AddressList.getSelectedRecord()
 
         -- ask for script path
-        local scriptPath = InputQuery('Enter Script Path', 'Path to Script That Should be Synced', scriptPath)
+        local scriptPath = InputQuery('Enter Script Path', 'Path to Script That Should be Synced', "C:\\Program Files (x86)\\...MyFile.txt")
         --this should really have better error checking...
         if scriptPath == nil then
             ShowMessage("Failed to sync script, you must enter a path!")
@@ -401,11 +423,7 @@ package.preload["ce.auto_sync"] = function(...)
     end
 
     openSyncFormMenuItem.OnClick = function (s)
-        local form = setUpForm()
-        if form == nil then ShowMessage("Failed to open form, please report this bug to the script's creator.") return end
-        form.show()
-        form.bringToFront()
-
+        createAndShowSyncForm()
     end
   
     return _m
