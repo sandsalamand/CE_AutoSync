@@ -20,22 +20,10 @@ package.preload["ce.auto_sync"] = function(...)
     local recordList = {}
     local pathList = {}
     local tableFileName = "syncList.txt"
-    SyncTimer = nil
-
-    --[[currently unnecessary
-    local function getScriptRecord(scriptName)
-        local scriptRecord = nil
-        local addressList = getAddressList()
-        if addressList.Count >= 1 then
-        scriptRecord = addressList.getMemoryRecordByDescription(scriptName)
-        end
-        if scriptRecord == nil then
-            scriptRecord = addressList.createMemoryRecord()
-            scriptRecord.Description = scriptName
-        end
-        scriptRecord.Type = 11 --11 is autoAssembler
-        return scriptRecord
-    end ]]
+    local mainForm = nil
+    local tableMenuItem = nil
+    local syncListMenuItem = nil
+    local SyncTimer = nil
 
     -- Escape special pattern characters in string to be treated as simple characters
     local function escape_magic(s)
@@ -151,7 +139,6 @@ package.preload["ce.auto_sync"] = function(...)
 
     local function addDataToSave(recordId, path)
         local tableFile = findTableFile(tableFileName)
-        if tableFile == nil then return nil end
         local memoryStream = tableFile.getData()
         memoryStream.Position = 0
         local tempStr = recordId.."»"..path..'\n'
@@ -159,35 +146,24 @@ package.preload["ce.auto_sync"] = function(...)
         memoryStream.write(byteTable)
     end
 
-    local function timer_tick(timer)
-        --Update all records in list with text from files in pathList
-        for index, value in ipairs(recordIdList) do
-            local fileString = getStringFromFile(pathList[index])
-            local recordAtIndex = getRecordFromId(recordIdList[index])
-            if recordAtIndex == nil then
-                removeFromAllLists(index)
-                removeDataFromSave(recordIdList[index])
-            elseif fileString ~= nil and recordAtIndex.Type == 11 then
-                recordAtIndex.Script = fileString
-            end
+    local function appendCheckMarkToRecord(record)
+        local recordDescription = record.Description
+        if (recordDescription:find("%✓") == nil) then
+            print("appending")
+            record.Description = recordDescription.." ✓"
         end
     end
 
-    local function createMyTimer()
-        --make a timer if it doesn't already exist
-        if (SyncTimer == nil) then
-            SyncTimer = createTimer(getMainForm())
-            SyncTimer.Interval = timerInterval
-            SyncTimer.OnTimer = timer_tick
-            SyncTimer.setEnabled(true)
-        end
+    local function removeCheckMarkFromRecord(record)
+        record.Description = record.Description:gsub("%✓", "")
+        --[[ if (recordDescription:find("%✓") ~= nil) then
+            print("appending")
+            record.Description = recordDescription.." ✓"
+        end ]]
     end
 
-    local function saveData()
-        local tableFile = findTableFile(tableFileName)
-        if tableFile == nil then
-            tableFile = createTableFile(tableFileName)
-        end
+    local function saveDataToFile(tableFile)
+        if tableFile == nil then return nil end
         local memoryStream = tableFile.getData()
         memoryStream.Position = 0
         if pathList ~= nil and recordIdList ~= nil then
@@ -199,11 +175,76 @@ package.preload["ce.auto_sync"] = function(...)
         end
     end
 
+    local function createTableFileWithData(name)
+        local tableFile = createTableFile(name)
+        saveDataToFile(tableFile)
+        return tableFile
+    end
+
+    local function checkForTableMenuOpened()
+        if(tableMenuItem.Count > 6) then
+            return true
+        end
+        return false
+    end
+
+    local function getSyncListMenuItem()
+        local item
+        local i = 0
+        local menuItemCount = tableMenuItem.Count
+        while(i < menuItemCount) do
+            item = tableMenuItem.Item[i]
+            if (item.Caption == tableFileName) then
+                tableMenuItem.delete(i) --test
+                return item
+            end
+            i = i + 1
+        end
+        return nil
+    end
+
+    local function timer_tick(timer)
+        --TODO: Remove most global variables I added, simply do findTableFile() here and remove the checkmark + clear all lists if user deletes tableFile (they will still have them saved on their PC)
+        if(syncListMenuItem == nil and checkForTableMenuOpened() == true) then --triggers when menu is open
+            syncListMenuItem = getSyncListMenuItem()
+            syncListMenuItem = nil --test
+        end
+        if syncListMenuItem ~= nil and syncListMenuItem.Parent == nil then --if reference has already been set, but parent is nil, it means menuItem was destroyed or menu was closed
+            --print("reference expired: "..syncListMenuItem.Caption)
+            syncListMenuItem = nil
+            local tableFile = findTableFile(tableFileName)
+            if tableFile ~= nil then tableFile.delete() end
+            createTableFileWithData(tableFileName)
+        end
+        --Update all records in list with text from files in pathList
+        for index, recordId in ipairs(recordIdList) do
+            local fileString = getStringFromFile(pathList[index])
+            local recordAtIndex = getRecordFromId(recordId)
+            if recordAtIndex == nil then
+                removeFromAllLists(index)
+                removeDataFromSave(recordId)
+            elseif fileString ~= nil and recordAtIndex.Type == 11 then
+                recordAtIndex.Script = fileString
+                appendCheckMarkToRecord(recordAtIndex)
+            end
+        end
+    end
+
+    local function createMyTimer()
+        --make a timer if it doesn't already exist
+        if (SyncTimer == nil) then
+            SyncTimer = createTimer(mainForm)
+            SyncTimer.Interval = timerInterval
+            SyncTimer.OnTimer = timer_tick
+            SyncTimer.setEnabled(true)
+        end
+    end
+
     local function loadData()
         local tableFile = findTableFile(tableFileName)
         if tableFile == nil then return nil end
         print("loading data")
-        createMyTimer() --ignore this
+        createMyTimer()
         local memoryStream = tableFile.getData()
         local fileStr = getStringFromMemoryStream(memoryStream)
         local lines = fileStr:split('\n')
@@ -224,6 +265,25 @@ package.preload["ce.auto_sync"] = function(...)
         end
     end
 
+    local function addFilesToSync(fileNames)
+        if fileNames ~= nil then
+            createMyTimer() -- function won't create if timer already exists
+            for index, value in ipairs(fileNames) do
+                local extraSlashesPath = string.gsub(fileNames[index], "\\", "\\\\")
+                local addressList = getAddressList()
+                local record = addressList.createMemoryRecord()
+                record.Description = fileNames[index] -- maybe change this to be only what is after the last \
+                record.Type = 11 --11 is autoAssembler
+                if (addToAllLists(record.ID, extraSlashesPath) == false) then
+                    print("failed to add") 
+                end
+                addDataToSave(record.ID, extraSlashesPath)
+            end
+            local tableFile = findTableFile(tableFileName)
+            saveDataToFile(tableFile)
+        end
+    end
+
     local function setUpForm()
         local form = createForm(true)
         form.Caption = "Sync Scripts"
@@ -235,24 +295,7 @@ package.preload["ce.auto_sync"] = function(...)
         --else menuItem.Caption = "Sync Scripts" end
         form.AllowDropFiles = true
         --fileNames is an array of file paths with single slashes. gsub adds extra slashes before passing to getStringFromFile
-        form.OnDropFiles = function(sender, fileNames)
-            if fileNames ~= nil then
-                createMyTimer() -- function won't create if timer already exists
-                for index, value in ipairs(fileNames) do
-                    local extraSlashesPath = string.gsub(fileNames[index], "\\", "\\\\")
-                    local addressList = getAddressList()
-                    local record = addressList.createMemoryRecord()
-                    record.Description = fileNames[index] -- maybe change this to be only what is after the last \
-                    record.Type = 11 --11 is autoAssembler
-                    if (addToAllLists(record.ID, extraSlashesPath) == false) then
-                        print("failed to add") 
-                    end
-                    addDataToSave(record.ID, extraSlashesPath)
-                end
-                saveData()
-                
-            end
-        end
+        form.OnDropFiles = function(sender, fileNames) addFilesToSync(fileNames) end
         local label = createLabel(form)
         label.setTop(label.ClientWidth/2)
         label.Caption = "Enter Script Path"
@@ -287,11 +330,34 @@ package.preload["ce.auto_sync"] = function(...)
     openSyncFormMenuItem.ImageIndex = MainForm.CreateGroup.ImageIndex
     popUpMenu.Items.insert(MainForm.CreateGroup.MenuIndex, openSyncFormMenuItem)
 
-    local function loadEverything()
-        loadData()
+    local function getSyncListMenuItem()
+        print("menu opened")
     end
 
-    getMainForm().registerFirstShowCallback(loadEverything)
+    local function loadEverything()
+        loadData()
+        local menuItems = mainForm.Menu.Items
+        tableMenuItem = mainForm.Menu.Items[3]
+        --menuItems[2].setOnClick(getSyncListMenuItem) --doesnt work
+        -- local newMenuItemtest = createMenuItem(mainForm.Menu)
+        -- newMenuItemtest.Caption = "test"
+        -- newMenuItemtest.Parent = menuItems[1]
+        -- menuItems[1]:add(newMenuItemtest)
+        local menuIndex = 3
+        local item
+        local i = 0
+        local menuItemCount = menuItems[menuIndex].Count -- can look when this increases to see when users expands Table menu, then get a reference to the syncList.txt MenuItem
+        while(i < menuItemCount) do
+            item = menuItems[menuIndex].Item[i]
+            print(item.getCaption())
+            i = i + 1
+        end
+        print(menuItems[3].Count)
+        mainForm.OnDropFiles = function(sender, filenames) addFilesToSync(filenames) end
+    end
+
+    mainForm = getMainForm()
+    mainForm.registerFirstShowCallback(loadEverything)
 
   
     enableSyncMenuItem.OnClick = function(s)
@@ -320,6 +386,7 @@ package.preload["ce.auto_sync"] = function(...)
             if recordIdList[index] == selectedRecord.ID then
                 removeFromAllLists(index)
                 removeDataFromSave(selectedRecord.ID)
+                removeCheckMarkFromRecord(selectedRecord)
                 selectedRecord.OnDestroy = nil
                 foundRecord = true
             end
