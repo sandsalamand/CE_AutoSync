@@ -23,6 +23,7 @@ package.preload["ce.auto_sync"] = function(...)
     local mainForm = nil
     local tableMainMenuItem = nil
     local SyncTimer = nil
+    local listMenuItems = nil
 
     -- Escape special pattern characters in string to be treated as simple characters
     local function escape_magic(s)
@@ -84,11 +85,9 @@ package.preload["ce.auto_sync"] = function(...)
 
     local function getStringFromFile(path)
         local memoryStream = createMemoryStream()
-        memoryStream.loadFromFile(path)
-        if memoryStream == nil then
-            ShowMessage("Path entered does not lead to a valid file.")
-            return nil
-        end
+        local loadSuccess = memoryStream.loadFromFileNoError(path)
+        if loadSuccess == false then
+            return nil end
         local fileStr = getStringFromMemoryStream(memoryStream)
         return fileStr
     end
@@ -125,9 +124,18 @@ package.preload["ce.auto_sync"] = function(...)
         table.insert(recordIdList, recordId)
         table.insert(recordList, record)
         local thisIndex = #pathList
+        if listMenuItems ~= nil then
+            local recordDescriptionItem = listMenuItems.add()
+            recordDescriptionItem.Caption = record.Description
+            recordDescriptionItem.SubItems.add(pathList[thisIndex])
+        end
         record.OnDestroy = function ()
             removeFromAllLists(thisIndex)
             removeDataFromSave(recordId)
+            if listMenuItems ~= nil then
+                local item = listMenuItems.getItem(thisIndex - 1)
+                item:delete()
+            end
             --if all records are removed, stop timer to save cpu time
             if SyncTimer ~= nil and recordIdList.Count == 0 then
                 SyncTimer.setEnabled(false)
@@ -145,6 +153,7 @@ package.preload["ce.auto_sync"] = function(...)
         memoryStream.write(byteTable)
     end
 
+    --should condense these 4 functions into 2
     local function appendCheckMarkToRecord(record)
         local recordDescription = record.Description
         if (recordDescription:find("%✓") == nil) then
@@ -153,13 +162,22 @@ package.preload["ce.auto_sync"] = function(...)
         end
     end
 
+    local function appendWarningSignToRecord(record)
+        local recordDescription = record.Description
+        if (recordDescription:find("%🚫") == nil) then
+            print("appending")
+            record.Description = recordDescription.." 🚫"
+        end
+    end
+
     local function removeCheckMarkFromRecord(record)
         record.Description = record.Description:gsub("%✓", "")
-        --[[ if (recordDescription:find("%✓") ~= nil) then
-            print("appending")
-            record.Description = recordDescription.." ✓"
-        end ]]
     end
+
+    local function removeWarningSignFromRecord(record)
+        record.Description = record.Description:gsub("%🚫", "")
+    end
+    ----
 
     local function saveDataToFile(tableFile)
         if tableFile == nil then return nil end
@@ -202,21 +220,18 @@ package.preload["ce.auto_sync"] = function(...)
     end
 
     local function timer_tick(timer)
-        --alternative: do findTableFile() here and remove the checkmark + clear all lists if user deletes tableFile (they will still have them saved on their PC)
+        --if user opens the Table MenuItem, delete syncList menuItem to prevent them from deleting it
         if(checkForTableMenuOpened() == true) then --triggers when menu is open
-            deleteSyncListMenuItem()
+            deleteSyncListMenuItem()                                                              --RE-ENABLE THIS WHEN DONE DEBUGGING
         end
-        --[[ if syncListMenuItem ~= nil and syncListMenuItem.Parent == nil then --if reference has already been set, but parent is nil, it means menuItem was destroyed or menu was closed
-            --print("reference expired: "..syncListMenuItem.Caption)
-            syncListMenuItem = nil
-            local tableFile = findTableFile(tableFileName)
-            if tableFile ~= nil then tableFile.delete() end
-            createTableFileWithData(tableFileName)
-        end ]]
         --Update all records in list with text from files in pathList
         for index, recordId in ipairs(recordIdList) do
             local fileString = getStringFromFile(pathList[index])
             local recordAtIndex = getRecordFromId(recordId)
+            if fileString == nil then
+                removeCheckMarkFromRecord(recordAtIndex)
+                appendWarningSignToRecord(recordAtIndex)
+            end
             if recordAtIndex == nil then
                 removeFromAllLists(index)
                 removeDataFromSave(recordId)
@@ -237,8 +252,7 @@ package.preload["ce.auto_sync"] = function(...)
         end
     end
 
-    local function loadData()
-        local tableFile = findTableFile(tableFileName)
+    local function loadData(tableFile)
         if tableFile == nil then return nil end
         print("loading data")
         createMyTimer()
@@ -263,7 +277,8 @@ package.preload["ce.auto_sync"] = function(...)
     end
 
     local function addFilesToSync(fileNames)
-        if fileNames ~= nil then
+        local tableFile = findTableFile(tableFileName)
+        if fileNames ~= nil and tableFile ~= nil then
             createMyTimer() -- function won't create if timer already exists
             for index, value in ipairs(fileNames) do
                 local extraSlashesPath = string.gsub(fileNames[index], "\\", "\\\\")
@@ -276,9 +291,38 @@ package.preload["ce.auto_sync"] = function(...)
                 end
                 addDataToSave(record.ID, extraSlashesPath)
             end
-            local tableFile = findTableFile(tableFileName)
             saveDataToFile(tableFile)
         end
+    end
+
+    local function disableSyncRecord(record)
+        if record == nil then return nil end
+        --try to remove record from list of records to be updated
+        local foundRecord = false
+        for index, value in ipairs(recordIdList) do
+            if recordIdList[index] == record.ID then
+                removeFromAllLists(index)
+                removeDataFromSave(record.ID)
+                removeCheckMarkFromRecord(record)
+                removeWarningSignFromRecord(record)
+                if listMenuItems ~= nil then
+                    local item = listMenuItems.getItem(index - 1)
+                    item:delete()
+                end
+                record.OnDestroy = nil
+                foundRecord = true
+            end
+        end
+        if foundRecord == false then ShowMessage("Failed to find record in list of synced scripts, are you sure you clicked the right record?") end
+
+        --if all records are removed, stop timer to save cpu time
+        if SyncTimer ~= nil and recordIdList.Count == 0 then
+            SyncTimer.setEnabled(false)
+        end
+    end
+
+    local function setListMenuItemsNil()
+        listMenuItems = nil
     end
 
     local function setUpForm()
@@ -289,6 +333,11 @@ package.preload["ce.auto_sync"] = function(...)
         form.AllowDropFiles = true
         --fileNames is an array of file paths with single slashes. gsub adds extra slashes before passing to getStringFromFile
         form.OnDropFiles = function(sender, fileNames) addFilesToSync(fileNames) end
+        form.OnClose = function (s)
+            listMenuItems = nil
+            form.Enabled = false
+            form.hide()
+        end
 
         local titleFont = createFont()
         titleFont.Size = 24
@@ -311,14 +360,56 @@ package.preload["ce.auto_sync"] = function(...)
         local infoLabel = createLabel(form)
         infoLabel.Caption = "Add files by dropping them onto this window, or onto the main CE form."
         infoLabel.Font = infoFont
+        infoLabel.Width = 400
         infoLabel.setTop(120)
         local xPosInfo = (form.Width/2) - (infoLabel.Width/2)
         infoLabel.setLeft(xPosInfo)
-        infoLabel.Width = 400
         infoLabel.Enabled = true
         infoLabel.Visible = true
 
-        --TODO: print record.Description and the associated path. can maybe use addDataToSave for inspiration
+        local rowItemFont = createFont()
+        rowItemFont.Size = 10
+
+        local listView = createListView(form)
+        listView.Width = 800
+        listView.Height = 800
+        listView.setTop(200)
+        local xPosListView = (form.Width/2) - (listView.Width/2)
+        listView.setLeft(xPosListView)
+        listView.ReadOnly = true
+        listView.RowSelect = true
+        listView.Font = rowItemFont
+        local lvPopupMenu = createPopupMenu(listView)
+        listView.setPopupMenu(lvPopupMenu)
+        local stopSyncMenuItem = createMenuItem(lvPopupMenu)
+        stopSyncMenuItem.Caption = 'Remove from Sync List'
+        stopSyncMenuItem.ImageIndex = MainForm.CreateGroup.ImageIndex --change this
+        lvPopupMenu.Items.insert(0, stopSyncMenuItem)
+        stopSyncMenuItem.OnClick = function(s)
+            local selectedItem = listView.Selected
+            if selectedItem == nil then return nil end
+            disableSyncRecord(recordList[selectedItem.Index + 1])
+        end
+
+        listMenuItems = listView.Items  --global
+        local listColumns = listView.Columns
+        local recordNameColumn = listColumns.add()
+        recordNameColumn.Caption = "Record Name"
+        recordNameColumn.AutoSize = true
+        recordNameColumn.Visible = true
+        local pathColumn = listColumns.add()
+        pathColumn.Caption = "Path"
+        pathColumn.AutoSize = true
+        pathColumn.Visible = true
+        for index, record in ipairs(recordList) do
+            local recordDescriptionItem = listMenuItems.add()
+            recordDescriptionItem.Caption = record.Description
+            recordDescriptionItem.SubItems.add(pathList[index])
+        end
+        --print(listItems.Count)
+        --syncListLabel.Font = infoFont
+        listView.Enabled = true
+        listView.Visible = true
 
         return form
     end
@@ -331,13 +422,7 @@ package.preload["ce.auto_sync"] = function(...)
         form.bringToFront()
     end
 
-    -- add item to enable sync to popup menu
     local popUpMenu = AddressList.PopupMenu
-    local enableSyncMenuItem = createMenuItem(popUpMenu)
-    enableSyncMenuItem.Caption = 'Enable Sync'
-    enableSyncMenuItem.ImageIndex = MainForm.CreateGroup.ImageIndex
-    popUpMenu.Items.insert(MainForm.CreateGroup.MenuIndex, enableSyncMenuItem)
-
     --add item to disable sync to popup menu
     local disableSyncMenuItem = createMenuItem(popUpMenu)
     disableSyncMenuItem.Caption = 'Disable Sync'
@@ -361,7 +446,9 @@ package.preload["ce.auto_sync"] = function(...)
     end
 
     local function loadEverything()
-        loadData()
+        local tableFile = findTableFile(tableFileName)
+        if tableFile == nil then createTableFile(tableFileName) end
+        loadData(tableFile)
         local mainMenuItems = mainForm.Menu.Items
         tableMainMenuItem = mainMenuItems[3]
         local menuIndex = 3
@@ -381,45 +468,9 @@ package.preload["ce.auto_sync"] = function(...)
     mainForm = getMainForm()
     mainForm.registerFirstShowCallback(loadEverything)
 
-  
-    enableSyncMenuItem.OnClick = function(s)
-        local selectedRecord = AddressList.getSelectedRecord()
-
-        -- ask for script path
-        local scriptPath = InputQuery('Enter Script Path', 'Path to Script That Should be Synced', "C:\\Program Files (x86)\\...MyFile.txt")
-        --this should really have better error checking...
-        if scriptPath == nil then
-            ShowMessage("Failed to sync script, you must enter a path!")
-            return
-        end
-        local extraSlashesPath = string.gsub(scriptPath, "\\", "\\\\")
-        addToAllLists(selectedRecord.ID, extraSlashesPath)
-        addDataToSave(selectedRecord.ID, extraSlashesPath)
-        
-        createMyTimer()
-    end
-
     disableSyncMenuItem.OnClick = function (s)
         local selectedRecord = AddressList.getSelectedRecord()
-
-        --try to remove record from list of records to be updated
-        local foundRecord = false
-        for index, value in ipairs(recordIdList) do
-            if recordIdList[index] == selectedRecord.ID then
-                removeFromAllLists(index)
-                removeDataFromSave(selectedRecord.ID)
-                removeCheckMarkFromRecord(selectedRecord)
-                selectedRecord.OnDestroy = nil
-                foundRecord = true
-            end
-        end
-        if foundRecord == false then ShowMessage("Failed to find record in list of synced scripts, are you sure you clicked the right record?") end
-
-        --if all records are removed, stop timer to save cpu time
-        if SyncTimer ~= nil and recordIdList.Count == 0 then
-            SyncTimer.setEnabled(false)
-        end
-        
+        disableSyncRecord(selectedRecord)
     end
 
     openSyncFormMenuItem.OnClick = function (s)
