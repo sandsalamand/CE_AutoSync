@@ -276,16 +276,21 @@ package.preload["ce.auto_sync"] = function(...)
         end
     end
 
-    local function addFilesToSync(fileNames)
+    local function getFileNameFromPath(path)
+        local lastdotpos = (path:reverse()):find("\\")
+        return (path:sub(1 - lastdotpos))
+    end
+
+    local function addFilesToSync(paths)
         local tableFile = findTableFile(tableFileName)
-        if fileNames ~= nil and tableFile ~= nil then
+        if paths ~= nil and tableFile ~= nil then
             createMyTimer() -- function won't create if timer already exists
-            for index, value in ipairs(fileNames) do
-                local extraSlashesPath = string.gsub(fileNames[index], "\\", "\\\\")
+            for index, path in ipairs(paths) do
                 local addressList = getAddressList()
                 local record = addressList.createMemoryRecord()
-                record.Description = fileNames[index] -- maybe change this to be only what is after the last \
+                record.Description = getFileNameFromPath(path)
                 record.Type = 11 --11 is autoAssembler
+                local extraSlashesPath = string.gsub(path, "\\", "\\\\")
                 if (addToAllLists(record.ID, extraSlashesPath) == false) then
                     print("failed to add") 
                 end
@@ -395,15 +400,15 @@ package.preload["ce.auto_sync"] = function(...)
         local listColumns = listView.Columns
         local recordNameColumn = listColumns.add()
         recordNameColumn.Caption = "Record Name"
-        recordNameColumn.AutoSize = true
+        recordNameColumn.Width = listView.width/2
         recordNameColumn.Visible = true
         local pathColumn = listColumns.add()
         pathColumn.Caption = "Path"
-        pathColumn.AutoSize = true
+        pathColumn.Width = listView.width/2
         pathColumn.Visible = true
         for index, record in ipairs(recordList) do
             local recordDescriptionItem = listMenuItems.add()
-            recordDescriptionItem.Caption = record.Description
+            recordDescriptionItem.Caption = record.Description:gsub("%✓", "") --remove checkmarks for sync list display
             recordDescriptionItem.SubItems.add(pathList[index])
         end
         --print(listItems.Count)
@@ -445,22 +450,30 @@ package.preload["ce.auto_sync"] = function(...)
         settingsMainMenuItem:add(syncMenuItem)
     end
 
+    local function UpdateSyncListName (memrec, newName)
+        if listMenuItems == nil then return nil end
+        print ("updating name")
+        for index, record in ipairs(recordList) do
+            if record == memrec then
+                local item = listMenuItems.getItem(index - 1)
+                item.Caption = newName
+            end
+        end
+    end
+
     local function loadEverything()
         local tableFile = findTableFile(tableFileName)
         if tableFile == nil then createTableFile(tableFileName) end
         loadData(tableFile)
         local mainMenuItems = mainForm.Menu.Items
         tableMainMenuItem = mainMenuItems[3]
-        local menuIndex = 3
-        local item
-        local i = 0
-        local menuItemCount = mainMenuItems[menuIndex].Count -- can look when this increases to see when users expands Table menu, then get a reference to the syncList.txt MenuItem
-        while(i < menuItemCount) do
-            item = mainMenuItems[menuIndex].Item[i]
-            print(item.getCaption())
-            i = i + 1
+        AddressList.OnDescriptionChange = function(addresslist, memrec)
+            local newName = InputQuery("Change Description", "What will be the new description?", memrec.Description)
+            memrec.Description = newName
+            UpdateSyncListName(memrec, newName)
+            return true
         end
-        print(mainMenuItems[3].Count)
+
         mainForm.OnDropFiles = function(sender, filenames) addFilesToSync(filenames) end
         createSyncSettingsMenuItem()
     end
