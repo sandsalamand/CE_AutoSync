@@ -15,7 +15,7 @@ package.preload["ce.auto_sync"] = function(...)
     local timerInterval = 300
     ------------------------------------------------------------------------------------------
 
-    --TODO: try changing function names to start with a capital
+    --TODO: change function names to start with a capital
     local recordIdList = {}
     local recordList = {}
     local pathList = {}
@@ -26,15 +26,15 @@ package.preload["ce.auto_sync"] = function(...)
     local listMenuItems = nil
 
     -- Escape special pattern characters in string to be treated as simple characters
-    local function escape_magic(s)
+    local function escape_magic(str)
         local MAGIC_CHARS_SET = '[()%%.[^$%]*+%-?]'
-        if s == nil then return end
-        return (s:gsub(MAGIC_CHARS_SET,'%%%1'))
+        if str == nil then return end
+        return (str:gsub(MAGIC_CHARS_SET,'%%%1'))
     end
 
     -- Returns an iterator to split a string on the given delimiter (comma by default)
     function string:gsplit(delimiter)
-        delimiter = delimiter or ','          --default delimiter is comma
+        delimiter = delimiter or ','
         if self:sub(-#delimiter) ~= delimiter then self = self .. delimiter end
         return self:gmatch('(.-)'..escape_magic(delimiter))
     end
@@ -48,7 +48,33 @@ package.preload["ce.auto_sync"] = function(...)
         return ans
     end
 
-    --gets a live reference to a record from its record ID
+    --should condense these 4 functions into 2
+    local function appendCheckMarkToRecord(record)
+        local recordDescription = record.Description
+        if (recordDescription:find("%✓") == nil) then
+            print("appending")
+            record.Description = recordDescription.." ✓"
+        end
+    end
+
+    local function appendWarningSignToRecord(record)
+        local recordDescription = record.Description
+        if (recordDescription:find("%🚫") == nil) then
+            print("appending")
+            record.Description = recordDescription.." 🚫"
+        end
+    end
+
+    local function removeCheckMarkFromRecord(record)
+        record.Description = record.Description:gsub("%✓", "")
+    end
+
+    local function removeWarningSignFromRecord(record)
+        record.Description = record.Description:gsub("%🚫", "")
+    end
+    ----
+
+    --Gets a live reference to a record from its record ID
     local function getRecordFromId(id)
         if id == nil then return nil end
         local scriptRecord = nil
@@ -83,6 +109,7 @@ package.preload["ce.auto_sync"] = function(...)
         return fileStr
     end
 
+    --Returns the raw text from a file
     local function getStringFromFile(path)
         local memoryStream = createMemoryStream()
         local loadSuccess = memoryStream.loadFromFileNoError(path)
@@ -92,7 +119,7 @@ package.preload["ce.auto_sync"] = function(...)
         return fileStr
     end
 
-    --removes all data associated with a recordId, by deleting from the given recordId until a newline char
+    --Removes all data associated with a recordId by deleting from the index of the given recordId, up until a newline character
     local function removeDataFromSave(recordId)
         if recordId == nil then return nil end
         print("Removing record with ID: "..recordId)
@@ -153,32 +180,6 @@ package.preload["ce.auto_sync"] = function(...)
         memoryStream.write(byteTable)
     end
 
-    --should condense these 4 functions into 2
-    local function appendCheckMarkToRecord(record)
-        local recordDescription = record.Description
-        if (recordDescription:find("%✓") == nil) then
-            print("appending")
-            record.Description = recordDescription.." ✓"
-        end
-    end
-
-    local function appendWarningSignToRecord(record)
-        local recordDescription = record.Description
-        if (recordDescription:find("%🚫") == nil) then
-            print("appending")
-            record.Description = recordDescription.." 🚫"
-        end
-    end
-
-    local function removeCheckMarkFromRecord(record)
-        record.Description = record.Description:gsub("%✓", "")
-    end
-
-    local function removeWarningSignFromRecord(record)
-        record.Description = record.Description:gsub("%🚫", "")
-    end
-    ----
-
     local function saveDataToFile(tableFile)
         if tableFile == nil then return nil end
         local memoryStream = tableFile.getData()
@@ -192,12 +193,6 @@ package.preload["ce.auto_sync"] = function(...)
         end
     end
 
-    local function createTableFileWithData(name)
-        local tableFile = createTableFile(name)
-        saveDataToFile(tableFile)
-        return tableFile
-    end
-
     local function checkForTableMenuOpened()
         if(tableMainMenuItem.Count > 6) then
             return true
@@ -205,6 +200,7 @@ package.preload["ce.auto_sync"] = function(...)
         return false
     end
 
+    --deletes the menuItem responsible for displaying the tableFile (only deletes the graphical representation of it, the tableFile itself is untouched)
     local function deleteSyncListMenuItem()
         local itemCaption
         local i = 0
@@ -242,8 +238,8 @@ package.preload["ce.auto_sync"] = function(...)
         end
     end
 
+    --Make a timer if it doesn't already exist
     local function createMyTimer()
-        --make a timer if it doesn't already exist
         if (SyncTimer == nil) then
             SyncTimer = createTimer(mainForm)
             SyncTimer.Interval = timerInterval
@@ -252,6 +248,8 @@ package.preload["ce.auto_sync"] = function(...)
         end
     end
 
+    --Loads data from table file into 3 lists (recordIdList, recordList, pathList)
+    --RecordList is not filled from table, but recordIDs are used to find the record instances they're associated with
     local function loadData(tableFile)
         if tableFile == nil then return nil end
         print("loading data")
@@ -281,6 +279,10 @@ package.preload["ce.auto_sync"] = function(...)
         return (path:sub(1 - lastdotpos))
     end
 
+    --Creates new memory records for files
+    --Adds their paths to pathList
+    --Adds their new recordID and record instance to recordIdList and recordList
+    --Saves data to tableFile
     local function addFilesToSync(paths)
         local tableFile = findTableFile(tableFileName)
         if paths ~= nil and tableFile ~= nil then
@@ -296,13 +298,13 @@ package.preload["ce.auto_sync"] = function(...)
                 end
                 addDataToSave(record.ID, extraSlashesPath)
             end
-            saveDataToFile(tableFile)
+            saveDataToFile(tableFile) --honestly don't know why I'm saving it twice, will investigate
         end
     end
 
+    -- Removes recordId, path, and instance pointer associated with a record from the 3 lists
     local function disableSyncRecord(record)
         if record == nil then return nil end
-        --try to remove record from list of records to be updated
         local foundRecord = false
         for index, value in ipairs(recordIdList) do
             if recordIdList[index] == record.ID then
@@ -326,17 +328,14 @@ package.preload["ce.auto_sync"] = function(...)
         end
     end
 
-    local function setListMenuItemsNil()
-        listMenuItems = nil
-    end
-
+    --Sets up a form with 2 labels and a list view
+    --Form has custom behavior for files dropped onto it, and for closing
     local function setUpForm()
         local form = createForm(true)
         form.Caption = "Sync Scripts"
         form.Width = 900
         form.Height = 1200
         form.AllowDropFiles = true
-        --fileNames is an array of file paths with single slashes. gsub adds extra slashes before passing to getStringFromFile
         form.OnDropFiles = function(sender, fileNames) addFilesToSync(fileNames) end
         form.OnClose = function (s)
             listMenuItems = nil
@@ -347,6 +346,11 @@ package.preload["ce.auto_sync"] = function(...)
         local titleFont = createFont()
         titleFont.Size = 24
         titleFont.Style = 'fsBold'
+        local infoFont = createFont()
+        infoFont.Size = 11
+        infoFont.Style = 'fsItalic'
+        local rowItemFont = createFont()
+        rowItemFont.Size = 10
 
         local titleLabel = createLabel(form)
         titleLabel.Caption = "List of Auto-Synced Files"
@@ -358,10 +362,6 @@ package.preload["ce.auto_sync"] = function(...)
         titleLabel.Enabled = true
         titleLabel.Visible = true
 
-        local infoFont = createFont()
-        infoFont.Size = 11
-        infoFont.Style = 'fsItalic'
-
         local infoLabel = createLabel(form)
         infoLabel.Caption = "Add files by dropping them onto this window, or onto the main CE form."
         infoLabel.Font = infoFont
@@ -372,9 +372,7 @@ package.preload["ce.auto_sync"] = function(...)
         infoLabel.Enabled = true
         infoLabel.Visible = true
 
-        local rowItemFont = createFont()
-        rowItemFont.Size = 10
-
+        --create a listView with custom right-click behavior to allow deleting of files from sync list with context menu
         local listView = createListView(form)
         listView.Width = 800
         listView.Height = 800
@@ -396,6 +394,7 @@ package.preload["ce.auto_sync"] = function(...)
             disableSyncRecord(recordList[selectedItem.Index + 1])
         end
 
+        --create two columns, then fill them with record names and paths
         listMenuItems = listView.Items  --global
         local listColumns = listView.Columns
         local recordNameColumn = listColumns.add()
@@ -406,40 +405,26 @@ package.preload["ce.auto_sync"] = function(...)
         pathColumn.Caption = "Path"
         pathColumn.Width = listView.width/2
         pathColumn.Visible = true
+        --populate listView with row entries
         for index, record in ipairs(recordList) do
             local recordDescriptionItem = listMenuItems.add()
             recordDescriptionItem.Caption = record.Description:gsub("%✓", "") --remove checkmarks for sync list display
-            recordDescriptionItem.SubItems.add(pathList[index])
+            recordDescriptionItem.SubItems.add(pathList[index])     --SubItems refers to the second column of a row
         end
-        --print(listItems.Count)
-        --syncListLabel.Font = infoFont
         listView.Enabled = true
         listView.Visible = true
-
         return form
     end
 
     local function createAndShowSyncForm()
-        --TODO: see if it's possible to check if form already exists before creating
+        --TODO: check if form already exists before creating
         local form = setUpForm()
         if form == nil then ShowMessage("Failed to open form, please report this bug to the script's creator.") return end
         form.show()
         form.bringToFront()
     end
 
-    local popUpMenu = AddressList.PopupMenu
-    --add item to disable sync to popup menu
-    local disableSyncMenuItem = createMenuItem(popUpMenu)
-    disableSyncMenuItem.Caption = 'Disable Sync'
-    disableSyncMenuItem.ImageIndex = MainForm.CreateGroup.ImageIndex
-    popUpMenu.Items.insert(MainForm.CreateGroup.MenuIndex, disableSyncMenuItem)
-
-    --add item to open sync form to popup menu
-    local openSyncFormMenuItem = createMenuItem(popUpMenu)
-    openSyncFormMenuItem.Caption = 'Sync Script'
-    openSyncFormMenuItem.ImageIndex = MainForm.CreateGroup.ImageIndex
-    popUpMenu.Items.insert(MainForm.CreateGroup.MenuIndex, openSyncFormMenuItem)
-
+    --Creates a new menu item in the CE Main Menu (top left bar of CE) under Settings
     local function createSyncSettingsMenuItem()
         local mainMenuItems = mainForm.Menu.Items
         local settingsMainMenuItem = mainMenuItems[1]
@@ -450,6 +435,7 @@ package.preload["ce.auto_sync"] = function(...)
         settingsMainMenuItem:add(syncMenuItem)
     end
 
+    --Updates a row Caption in the listView of the sync list form
     local function UpdateSyncListName (memrec, newName)
         if listMenuItems == nil then return nil end
         print ("updating name")
@@ -461,36 +447,51 @@ package.preload["ce.auto_sync"] = function(...)
         end
     end
 
+    --Calls loadData to import data from the tableFile into our 3 lists
+    --Sets up CE Main Menu "Sync Settings" menu item
+    --Overloads funcs that call when record names are changed or files are dragged into CE
     local function loadEverything()
         local tableFile = findTableFile(tableFileName)
         if tableFile == nil then createTableFile(tableFileName) end
         loadData(tableFile)
         local mainMenuItems = mainForm.Menu.Items
         tableMainMenuItem = mainMenuItems[3]
+        --replaces built-in name change InputQuery with our own so that we can pass the name to UpdateSyncListName
         AddressList.OnDescriptionChange = function(addresslist, memrec)
             local newName = InputQuery("Change Description", "What will be the new description?", memrec.Description)
             if newName ~= nil then
                 memrec.Description = newName
                 UpdateSyncListName(memrec, newName)
             end
-            return true
+            return true --tells AddressList that we don't want the default name change InputQuery to pop up
         end
 
         mainForm.OnDropFiles = function(sender, filenames) addFilesToSync(filenames) end
         createSyncSettingsMenuItem()
     end
 
-    mainForm = getMainForm()
-    mainForm.registerFirstShowCallback(loadEverything)
-
+    local popUpMenu = AddressList.PopupMenu
+    --add item to disable sync to popup menu
+    local disableSyncMenuItem = createMenuItem(popUpMenu)
+    disableSyncMenuItem.Caption = 'Disable Sync'
+    disableSyncMenuItem.ImageIndex = MainForm.CreateGroup.ImageIndex
+    popUpMenu.Items.insert(MainForm.CreateGroup.MenuIndex, disableSyncMenuItem)
     disableSyncMenuItem.OnClick = function (s)
         local selectedRecord = AddressList.getSelectedRecord()
         disableSyncRecord(selectedRecord)
     end
 
+    --add item to open sync form to popup menu
+    local openSyncFormMenuItem = createMenuItem(popUpMenu)
+    openSyncFormMenuItem.Caption = 'Sync Script'
+    openSyncFormMenuItem.ImageIndex = MainForm.CreateGroup.ImageIndex
+    popUpMenu.Items.insert(MainForm.CreateGroup.MenuIndex, openSyncFormMenuItem)
     openSyncFormMenuItem.OnClick = function (s)
         createAndShowSyncForm()
     end
+
+    mainForm = getMainForm()
+    mainForm.registerFirstShowCallback(loadEverything)
   
     return _m
 end
