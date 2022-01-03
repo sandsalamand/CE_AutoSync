@@ -456,7 +456,7 @@ package.preload["ce.auto_sync"] = function(...)
         for index, record in ipairs(recordList) do
             if record == memrec then
                 local item = listMenuItems.getItem(index - 1)
-                item.Caption = newName
+                item.Caption = newName:gsub("%✓", "")
             end
         end
     end
@@ -469,8 +469,10 @@ package.preload["ce.auto_sync"] = function(...)
         tableMainMenuItem = mainMenuItems[3]
         AddressList.OnDescriptionChange = function(addresslist, memrec)
             local newName = InputQuery("Change Description", "What will be the new description?", memrec.Description)
-            memrec.Description = newName
-            UpdateSyncListName(memrec, newName)
+            if newName ~= nil then
+                memrec.Description = newName
+                UpdateSyncListName(memrec, newName)
+            end
             return true
         end
 
