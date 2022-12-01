@@ -9,6 +9,6 @@ Sync List GUI
 
 <img width="451" alt="image" src="https://user-images.githubusercontent.com/38278077/147902611-514981c5-f851-4099-a78c-6e77cbfd74db.png">
 
-Checkmarks are added to records to identified synchronized files.
+Checkmarks are added to records to identify synchronized files.
 
 <img width="1061" alt="image" src="https://user-images.githubusercontent.com/38278077/147902695-f638d84d-f011-4086-9a54-d77884b37a78.png">
