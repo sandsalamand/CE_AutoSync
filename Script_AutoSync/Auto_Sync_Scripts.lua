@@ -15,14 +15,20 @@ package.preload["ce.auto_sync"] = function(...)
     local pollingInterval = 200
     ------------------------------------------------------------------------------------------
 
+    local debugMode = false
     local recordIdList = {}
     local recordList = {}
     local pathList = {}
-    local tableFileName = "Sync_List_dont_delete.txt"
+    local tableFileName = "Sync_Data_dont_delete.txt"
+    local configFileName = "Sync_Config.txt"
     local mainForm = nil
-    local tableMainMenuItem = nil
     local SyncTimer = nil
     local listMenuItems = nil
+    local overrideMainFormOnDrop = true
+
+    local function debugLog(string)
+        if (debugMode == true) then print(string) end
+    end
 
     -- Escape special pattern characters in string to be treated as simple characters
     local function escape_magic(str)
@@ -50,7 +56,7 @@ package.preload["ce.auto_sync"] = function(...)
     local function appendCheckMarkToRecord(record)
         local recordDescription = record.Description
         if (recordDescription:find("%✓") == nil) then
-            print("appending")
+            debugLog("appending")
             record.Description = recordDescription.." ✓"
         end
     end
@@ -58,7 +64,7 @@ package.preload["ce.auto_sync"] = function(...)
     local function appendWarningSignToRecord(record)
         local recordDescription = record.Description
         if (recordDescription:find("%🚫") == nil) then
-            print("appending")
+            debugLog("appending")
             record.Description = recordDescription.." 🚫"
         end
     end
@@ -69,6 +75,11 @@ package.preload["ce.auto_sync"] = function(...)
 
     local function removeWarningSignFromRecord(record)
         record.Description = record.Description:gsub("%🚫", "")
+    end
+
+    local function boolToString(boolean)
+        if boolean == true then return "true"
+        else return "false" end
     end
 
     --Gets a live reference to a record from its record ID
@@ -87,7 +98,7 @@ package.preload["ce.auto_sync"] = function(...)
 
     local function removeFromAllLists(removalIndex)
         if removalIndex == nil then 
-            print ("attempted to remove at a nil index")
+            debugLog ("attempted to remove at a nil index")
             return nil
         end
         table.remove(pathList, removalIndex)
@@ -119,7 +130,7 @@ package.preload["ce.auto_sync"] = function(...)
     --Removes all data associated with a recordId by deleting from the index of the given recordId, up until a newline character
     local function removeDataFromSave(recordId)
         if recordId == nil then return nil end
-        print("Removing record with ID: "..recordId)
+        debugLog("Removing record with ID: "..recordId)
         local tableFile = findTableFile(tableFileName)
         if tableFile == nil then return nil end
         local memoryStream = tableFile.getData()
@@ -143,7 +154,7 @@ package.preload["ce.auto_sync"] = function(...)
 
     local function addToAllLists(recordId, path)
         local record = getRecordFromId(recordId)
-        if record == nil then print("record nil") return false end
+        if record == nil then debugLog("record nil") return false end
         table.insert(pathList, path)
         table.insert(recordIdList, recordId)
         table.insert(recordList, record)
@@ -190,33 +201,54 @@ package.preload["ce.auto_sync"] = function(...)
         end
     end
 
-    local function checkForTableMenuOpened()
-        if(tableMainMenuItem.Count > 6) then
-            return true
-        end
-        return false
+    local function setupNewConfigFile(fileName)
+        local existingTableFile = findTableFile(fileName)
+        if existingTableFile ~= nil then existingTableFile:destroy() end
+        local returnTableFile = createTableFile(fileName)
+        local memoryStream = returnTableFile.getData()
+        local tempStr
+        if overrideMainFormOnDrop == true then tempStr = "true\n"
+        else tempStr = "false\n" end
+        local byteTable = stringToByteTable(tempStr)
+        memoryStream.write(byteTable)
+        return returnTableFile
     end
 
-    --deletes the menuItem responsible for displaying the tableFile (only deletes the graphical representation of it, the tableFile itself is untouched)
-    local function deleteSyncListMenuItem()
-        local itemCaption
-        local i = 0
-        local menuItemCount = tableMainMenuItem.Count
-        while(i < menuItemCount) do
-            itemCaption = tableMainMenuItem.Item[i].Caption
-            if (itemCaption == tableFileName) then
-                tableMainMenuItem.delete(i)
-            end
-            i = i + 1
+    local function clearAndWriteToConfigFile(fileName, strToWrite)
+        local tableFile = findTableFile(fileName)
+        if tableFile == nil then return nil end
+        local memoryStream = tableFile.getData()
+        local byteTable = stringToByteTable(strToWrite .. "  ") --add a couple spaces at the end
+        memoryStream.write(byteTable)
+    end
+
+    local function parseConfigFile(configTableFile)
+        if configTableFile == nil then
+            return true, setupNewConfigFile(configFileName) -- if config file is missing, then return a fresh one
         end
-        return nil
+        local memoryStream = configTableFile.getData()
+        local fileStr = getStringFromMemoryStream(memoryStream)
+        local falseStrIndex = fileStr:find("false")
+        local trueStrIndex = fileStr:find("true")
+
+        --switch based on true/false strings in config file
+        if (falseStrIndex == nil and trueStrIndex == nil) or (falseStrIndex ~= nil and trueStrIndex ~= nil) then
+            configTableFile:delete()
+            debugLog ("file was bad")
+            return true, setupNewConfigFile(configFileName) -- if config file is broken, then return a fresh one
+        elseif (falseStrIndex ~= nil) then
+            return false, configTableFile
+        else
+            return true, configTableFile
+        end
     end
 
     local function timer_tick(timer)
-        --if user opens the Table MenuItem, delete syncList menuItem to prevent them from deleting it
-        if(checkForTableMenuOpened() == true) then --triggers when menu is open
-            deleteSyncListMenuItem()                                                              --RE-ENABLE THIS WHEN DONE DEBUGGING
+        local syncDataFile = findTableFile(tableFileName)
+        if syncDataFile == nil then
+            createTableFile(tableFileName)
         end
+
         --Update all records in list with text from files in pathList
         for index, recordId in ipairs(recordIdList) do
             local fileString = getStringFromFile(pathList[index])
@@ -233,6 +265,10 @@ package.preload["ce.auto_sync"] = function(...)
                 appendCheckMarkToRecord(recordAtIndex)
             end
         end
+
+        --check config file
+        local configFile = findTableFile(configFileName)
+        overrideMainFormOnDrop, configFile = parseConfigFile(configFile)
     end
 
     --Make a timer if it doesn't already exist
@@ -249,7 +285,7 @@ package.preload["ce.auto_sync"] = function(...)
     --RecordList is not filled from table, but recordIDs are used to find the record instances they're associated with
     local function loadData(tableFile)
         if tableFile == nil then return nil end
-        print("loading data")
+        debugLog("loading data")
         createMyTimer()
         local memoryStream = tableFile.getData()
         local fileStr = getStringFromMemoryStream(memoryStream)
@@ -260,13 +296,13 @@ package.preload["ce.auto_sync"] = function(...)
             if (getRecordFromId(recordId) == nil) then
                 removeDataFromSave(recordId)
             else
-                print("recordID loaded: "..recordId)
+                debugLog("recordID loaded: "..recordId)
                 local path = lineSplit[2]
                 if (path:find("\\\\") == nil) then
                     path = path:gsub("\\", "\\\\")
                 end
                 addToAllLists(recordId, path)
-                print("Path loaded: "..path)
+                debugLog("Path loaded: "..path)
             end
         end
     end
@@ -291,7 +327,7 @@ package.preload["ce.auto_sync"] = function(...)
                 record.Type = 11 --11 is autoAssembler
                 local extraSlashesPath = string.gsub(path, "\\", "\\\\")
                 if (addToAllLists(record.ID, extraSlashesPath) == false) then
-                    print("failed to add") 
+                    debugLog("failed to add") 
                 end
                 addDataToSave(record.ID, extraSlashesPath)
             end
@@ -359,11 +395,29 @@ package.preload["ce.auto_sync"] = function(...)
         titleLabel.Enabled = true
         titleLabel.Visible = true
 
+        local mainFormOnDropCheckBox = createCheckBox(form)
+        mainFormOnDropCheckBox.Caption = "Allow Dragging Files onto Main Form"
+        mainFormOnDropCheckBox.Font = rowItemFont
+        mainFormOnDropCheckBox.Width = 400
+        mainFormOnDropCheckBox.setTop(1110)
+        local xPosCheckBox = (form.Width/2) - (mainFormOnDropCheckBox.Width/2)
+        mainFormOnDropCheckBox.setLeft(xPosCheckBox)
+        --set global boolean to checkbox state
+        debugLog (boolToString(overrideMainFormOnDrop))
+        mainFormOnDropCheckBox.Checked = overrideMainFormOnDrop
+        mainFormOnDropCheckBox.OnChange = function(sender)
+            overrideMainFormOnDrop = mainFormOnDropCheckBox.Checked
+            clearAndWriteToConfigFile(configFileName, boolToString(overrideMainFormOnDrop))
+            debugLog (boolToString(overrideMainFormOnDrop))
+        end
+        mainFormOnDropCheckBox.Enabled = true
+        mainFormOnDropCheckBox.Visible = true
+
         local infoLabel = createLabel(form)
         infoLabel.Caption = "Add files by dropping them onto this window, or onto the main CE form."
         infoLabel.Font = infoFont
         infoLabel.Width = 400
-        infoLabel.setTop(120)
+        infoLabel.setTop(115)
         local xPosInfo = (form.Width/2) - (infoLabel.Width/2)
         infoLabel.setLeft(xPosInfo)
         infoLabel.Enabled = true
@@ -372,7 +426,7 @@ package.preload["ce.auto_sync"] = function(...)
         --create a listView with custom right-click behavior to allow deleting of files from sync list with context menu
         local listView = createListView(form)
         listView.Width = 800
-        listView.Height = 800
+        listView.Height = 870
         listView.setTop(200)
         local xPosListView = (form.Width/2) - (listView.Width/2)
         listView.setLeft(xPosListView)
@@ -385,7 +439,7 @@ package.preload["ce.auto_sync"] = function(...)
         stopSyncMenuItem.Caption = 'Remove from Sync List'
         stopSyncMenuItem.ImageIndex = MainForm.CreateGroup.ImageIndex --change this
         lvPopupMenu.Items.insert(0, stopSyncMenuItem)
-        stopSyncMenuItem.OnClick = function(s)
+        stopSyncMenuItem.OnClick = function(sender)
             local selectedItem = listView.Selected
             if selectedItem == nil then return nil end
             disableSyncRecord(recordList[selectedItem.Index + 1])
@@ -435,7 +489,7 @@ package.preload["ce.auto_sync"] = function(...)
     --Updates a row Caption in the listView of the sync list form
     local function updateSyncListName (memrec, newName)
         if listMenuItems == nil then return nil end
-        print ("updating name")
+        debugLog ("updating name")
         for index, record in ipairs(recordList) do
             if record == memrec then
                 local item = listMenuItems.getItem(index - 1)
@@ -444,15 +498,28 @@ package.preload["ce.auto_sync"] = function(...)
         end
     end
 
-    --Calls loadData to import data from the tableFile into our 3 lists
-    --Sets up CE Main Menu "Sync Settings" menu item
-    --Overloads funcs that call when record names are changed or files are dragged into CE
+    local function mainFormFilesDropped(filenames)
+        debugLog(boolToString(overrideMainFormOnDrop))
+        if overrideMainFormOnDrop == true then
+            addFilesToSync(filenames)
+        end
+    end
+
+    --Set up from config file
+    --Import data from the tableFile into our 3 lists
+    --Overload funcs that call when record names are changed or files are dragged into CE
     local function loadEverything()
-        local tableFile = findTableFile(tableFileName)
-        if tableFile == nil then createTableFile(tableFileName) end
-        loadData(tableFile)
-        local mainMenuItems = mainForm.Menu.Items
-        tableMainMenuItem = mainMenuItems[3]
+        --check config file and set overrideMainFormOnDrop boolean
+        local configFile = findTableFile(configFileName)
+        overrideMainFormOnDrop, configFile = parseConfigFile(configFile)
+
+        --import data from sync data file, or create a new one if it doesn't exist
+        local syncDataFile = findTableFile(tableFileName)
+        if syncDataFile == nil then
+            syncDataFile =  createTableFile(tableFileName)
+        end
+        loadData(syncDataFile)
+
         --replaces built-in name change InputQuery with our own so that we can pass the name to UpdateSyncListName
         AddressList.OnDescriptionChange = function(addresslist, memrec)
             local newName = InputQuery("Change Description", "What will be the new description?", memrec.Description)
@@ -463,7 +530,8 @@ package.preload["ce.auto_sync"] = function(...)
             return true --tells AddressList that we don't want the default name change InputQuery to pop up
         end
 
-        mainForm.OnDropFiles = function(sender, filenames) addFilesToSync(filenames) end
+        mainForm.OnDropFiles = function(sender, filenames) mainFormFilesDropped(filenames) end
+
         createSyncSettingsMenuItem()
     end
 
@@ -479,8 +547,10 @@ package.preload["ce.auto_sync"] = function(...)
 
     --add disableSync item to context menu
     addContextMenuItem('Disable Sync', function (s)
-        local selectedRecord = AddressList.getSelectedRecord()
-        disableSyncRecord(selectedRecord)
+        local selectedRecords = AddressList.getSelectedRecords()
+        for index, record in pairs(selectedRecords) do
+            disableSyncRecord(record)
+        end
     end)
 
     mainForm = getMainForm()
