@@ -12,14 +12,13 @@ package.preload["ce.auto_sync"] = function(...)
   
   ]]
     ----------------------------------------Options-------------------------------------------
-    local timerInterval = 300
+    local pollingInterval = 200
     ------------------------------------------------------------------------------------------
 
-    --TODO: change function names to start with a capital
     local recordIdList = {}
     local recordList = {}
     local pathList = {}
-    local tableFileName = "syncList.txt"
+    local tableFileName = "Sync_List_dont_delete.txt"
     local mainForm = nil
     local tableMainMenuItem = nil
     local SyncTimer = nil
@@ -48,7 +47,6 @@ package.preload["ce.auto_sync"] = function(...)
         return ans
     end
 
-    --should condense these 4 functions into 2
     local function appendCheckMarkToRecord(record)
         local recordDescription = record.Description
         if (recordDescription:find("%✓") == nil) then
@@ -72,7 +70,6 @@ package.preload["ce.auto_sync"] = function(...)
     local function removeWarningSignFromRecord(record)
         record.Description = record.Description:gsub("%🚫", "")
     end
-    ----
 
     --Gets a live reference to a record from its record ID
     local function getRecordFromId(id)
@@ -127,10 +124,10 @@ package.preload["ce.auto_sync"] = function(...)
         if tableFile == nil then return nil end
         local memoryStream = tableFile.getData()
         local fileStr = getStringFromMemoryStream(memoryStream) -- OPTIMIZATION OPPORTUNITY: - eliminate one stream copy operation
-        local recordIdFileIndex, indexend = string.find(fileStr, tostring(recordId)) --find the recordId
-        local newLineIndexStart, newlineIndexEnd = string.find(fileStr, "\n", indexend) -- search from the end of the recordId to find the first newline
-        local strToCut = string.sub(fileStr, recordIdFileIndex, newlineIndexEnd)
-        local newFileStr = string.gsub(fileStr, strToCut, "") --replace strToCut with emptiness in fileStr (delete strToCut)
+        local recordIdFileIndex, indexend = fileStr:find(tostring(recordId)) --find the recordId
+        local newLineIndexStart, newlineIndexEnd = fileStr:find("\n", indexend) -- search from the end of the recordId to find the first newline
+        local strToCut = fileStr:sub(recordIdFileIndex, newlineIndexEnd)
+        local newFileStr = fileStr:gsub(strToCut, "") --replace strToCut with emptiness in fileStr (delete strToCut)
         local byteTable = stringToByteTable(newFileStr)
         local newMemoryStream = createMemoryStream()
         newMemoryStream.Position = 0
@@ -242,7 +239,7 @@ package.preload["ce.auto_sync"] = function(...)
     local function createMyTimer()
         if (SyncTimer == nil) then
             SyncTimer = createTimer(mainForm)
-            SyncTimer.Interval = timerInterval
+            SyncTimer.Interval = pollingInterval
             SyncTimer.OnTimer = timer_tick
             SyncTimer.setEnabled(true)
         end
@@ -265,8 +262,8 @@ package.preload["ce.auto_sync"] = function(...)
             else
                 print("recordID loaded: "..recordId)
                 local path = lineSplit[2]
-                if (string.find(path, "\\\\") == nil) then
-                    path = string.gsub(path, "\\", "\\\\")
+                if (path:find("\\\\") == nil) then
+                    path = path:gsub("\\", "\\\\")
                 end
                 addToAllLists(recordId, path)
                 print("Path loaded: "..path)
@@ -298,7 +295,7 @@ package.preload["ce.auto_sync"] = function(...)
                 end
                 addDataToSave(record.ID, extraSlashesPath)
             end
-            saveDataToFile(tableFile) --honestly don't know why I'm saving it twice, will investigate
+            saveDataToFile(tableFile) --not sure why I save again at the end
         end
     end
 
@@ -436,7 +433,7 @@ package.preload["ce.auto_sync"] = function(...)
     end
 
     --Updates a row Caption in the listView of the sync list form
-    local function UpdateSyncListName (memrec, newName)
+    local function updateSyncListName (memrec, newName)
         if listMenuItems == nil then return nil end
         print ("updating name")
         for index, record in ipairs(recordList) do
@@ -461,7 +458,7 @@ package.preload["ce.auto_sync"] = function(...)
             local newName = InputQuery("Change Description", "What will be the new description?", memrec.Description)
             if newName ~= nil then
                 memrec.Description = newName
-                UpdateSyncListName(memrec, newName)
+                updateSyncListName(memrec, newName)
             end
             return true --tells AddressList that we don't want the default name change InputQuery to pop up
         end
@@ -470,25 +467,21 @@ package.preload["ce.auto_sync"] = function(...)
         createSyncSettingsMenuItem()
     end
 
-    local popUpMenu = AddressList.PopupMenu
-    --add item to disable sync to popup menu
-    local disableSyncMenuItem = createMenuItem(popUpMenu)
-    disableSyncMenuItem.Caption = 'Disable Sync'
-    disableSyncMenuItem.ImageIndex = MainForm.CreateGroup.ImageIndex
-    popUpMenu.Items.insert(MainForm.CreateGroup.MenuIndex, disableSyncMenuItem)
-    disableSyncMenuItem.OnClick = function (s)
-        local selectedRecord = AddressList.getSelectedRecord()
-        disableSyncRecord(selectedRecord)
+    local function addContextMenuItem(itemName, onClickFunction)
+        local popUpMenu = AddressList.PopupMenu
+        --add item to disable sync to popup menu
+        local disableSyncMenuItem = createMenuItem(popUpMenu)
+        disableSyncMenuItem.Caption = itemName
+        disableSyncMenuItem.ImageIndex = MainForm.CreateGroup.ImageIndex
+        popUpMenu.Items.insert(MainForm.CreateGroup.MenuIndex, disableSyncMenuItem)
+        disableSyncMenuItem.OnClick = onClickFunction
     end
 
-    --add item to open sync form to popup menu
-    local openSyncFormMenuItem = createMenuItem(popUpMenu)
-    openSyncFormMenuItem.Caption = 'Sync Script'
-    openSyncFormMenuItem.ImageIndex = MainForm.CreateGroup.ImageIndex
-    popUpMenu.Items.insert(MainForm.CreateGroup.MenuIndex, openSyncFormMenuItem)
-    openSyncFormMenuItem.OnClick = function (s)
-        createAndShowSyncForm()
-    end
+    --add disableSync item to context menu
+    addContextMenuItem('Disable Sync', function (s)
+        local selectedRecord = AddressList.getSelectedRecord()
+        disableSyncRecord(selectedRecord)
+    end)
 
     mainForm = getMainForm()
     mainForm.registerFirstShowCallback(loadEverything)
